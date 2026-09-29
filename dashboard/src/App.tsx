@@ -50,6 +50,33 @@ const IconCheck = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="no
 const IconTriangle = ({ size = 13 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F0616D" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4l9 16H3z" /><path d="M12 10v4" /><path d="M12 17.2v.1" /></svg>;
 const IconBolt = ({ size = 13 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E8A93A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" /></svg>;
 
+/* ---------------- pagination ---------------- */
+const PER_PAGE = 10;
+function usePaged<T>(items: T[]) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(items.length / PER_PAGE));
+  const current = Math.min(page, pageCount - 1);
+  useEffect(() => { if (page !== current) setPage(current); }, [page, current]);
+  const start = current * PER_PAGE;
+  return { page: current, setPage, pageCount, total: items.length, pageItems: items.slice(start, start + PER_PAGE) };
+}
+
+function Pager({ page, pageCount, total, onPage }: { page: number; pageCount: number; total: number; onPage: (p: number) => void }) {
+  if (pageCount <= 1) return null;
+  const from = page * PER_PAGE + 1;
+  const to = Math.min(total, (page + 1) * PER_PAGE);
+  return (
+    <div className="pager">
+      <span className="pg-range">{from}–{to} de {total}</span>
+      <div className="pg-nav">
+        <button className="pg-btn" disabled={page === 0} onClick={() => onPage(page - 1)}>‹ Anterior</button>
+        <span className="pg-info tnum">{page + 1} / {pageCount}</span>
+        <button className="pg-btn" disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>Próxima ›</button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- live data hook ---------------- */
 interface Snap { txns: Transaction[]; alerts: Alert[]; accounts: Account[]; at: number | null; }
 const EMPTY: Snap = { txns: [], alerts: [], accounts: [], at: null };
@@ -355,6 +382,8 @@ function AlertsPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; 
   const [filter, setFilter] = useState<"all" | RuleKey>("all");
   const cnt = { high_amount: snap.alerts.filter((a) => a.rule === "high_amount").length, velocity: snap.alerts.filter((a) => a.rule === "velocity").length };
   const shown = filter === "all" ? snap.alerts : snap.alerts.filter((a) => a.rule === filter);
+  const { page, setPage, pageCount, total, pageItems } = usePaged(shown);
+  useEffect(() => { setPage(0); }, [filter, setPage]);
   const filters: { id: "all" | RuleKey; label: string; count: number }[] = [
     { id: "all", label: "Todos", count: snap.alerts.length },
     { id: "high_amount", label: "Valor alto", count: cnt.high_amount },
@@ -388,7 +417,7 @@ function AlertsPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; 
             <span className="d">{snap.alerts.length === 0 ? "Simule uma transação de risco para testar as regras." : "Altere o filtro para ver outras regras."}</span>
           </div>
         ) : (
-          shown.map((a) => {
+          pageItems.map((a) => {
             const r = RULES[a.rule as RuleKey] ?? RULES.high_amount;
             return (
               <div className={`a-row ${newIds.has(a.id) ? "is-new" : ""}`} key={a.id}>
@@ -408,6 +437,7 @@ function AlertsPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; 
           })
         )}
       </div>
+      {!loading && <Pager page={page} pageCount={pageCount} total={total} onPage={setPage} />}
     </section>
   );
 }
@@ -420,6 +450,7 @@ function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newI
     if (!arr.includes(a.rule as RuleKey)) arr.push(a.rule as RuleKey);
     tagsByTx.set(a.transactionId, arr);
   }
+  const { page, setPage, pageCount, total, pageItems } = usePaged(snap.txns);
   return (
     <section className="panel lp txns" aria-label="Transações">
       <div className="lp-h">
@@ -439,7 +470,7 @@ function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newI
         ) : snap.txns.length === 0 ? (
           <div className="empty"><span className="t">Sem transações</span><span className="d">Use o simulador para enviar a primeira.</span></div>
         ) : (
-          snap.txns.map((t) => {
+          pageItems.map((t) => {
             const tags = tagsByTx.get(t.id) ?? [];
             return (
               <div className={`t-row ${newIds.has(t.id) ? "is-new" : ""}`} key={t.id}>
@@ -458,6 +489,7 @@ function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newI
           })
         )}
       </div>
+      {!loading && <Pager page={page} pageCount={pageCount} total={total} onPage={setPage} />}
     </section>
   );
 }

@@ -195,3 +195,12 @@ button, input { font-family: inherit; }
 .dd-item .dd-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-item .dd-side { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); flex: none; }
 .dd-item .dd-check { flex: none; }
+
+/* ---------- pager ---------- */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--border-3); }
+.pg-range { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pg-nav { display: flex; align-items: center; gap: 8px; }
+.pg-btn { height: 28px; padding: 0 10px; border-radius: 7px; background: var(--panel); border: 1px solid var(--border-2); color: var(--text); font-size: 12.5px; cursor: pointer; transition: background .12s, border-color .12s; }
+.pg-btn:hover:not(:disabled) { background: #1B1E24; border-color: #323642; }
+.pg-btn:disabled { opacity: .45; cursor: default; }
+.pg-info { font-size: 12px; color: var(--muted); min-width: 44px; text-align: center; }
