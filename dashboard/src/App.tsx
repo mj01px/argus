@@ -462,27 +462,58 @@ function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newI
   );
 }
 
-/* ---------------- accounts bar ---------------- */
-function AccountsBar({ accounts, selected, onSelect }: { accounts: Account[]; selected: string | null; onSelect: (a: string | null) => void }) {
+/* ---------------- accounts dropdown ---------------- */
+const Chevron = ({ open }: { open: boolean }) => (
+  <svg className="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "rotate(180deg)" : undefined }}>
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+const Check = () => <svg className="dd-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4C8DFF" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
+
+function AccountsDropdown({ accounts, selected, onSelect }: { accounts: Account[]; selected: string | null; onSelect: (a: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  const pick = (v: string | null) => { onSelect(v); setOpen(false); };
+  const active = selected ? accounts.find((a) => a.accountId === selected) : null;
+
   return (
-    <section className="accounts" aria-label="Contas">
-      <span className="acc-title">Contas</span>
-      <div className="acc-chips">
-        <button className={`acc-chip ${selected === null ? "on" : ""}`} onClick={() => onSelect(null)}>
-          <span>Geral</span>
-          <span className="c">{accounts.length}</span>
+    <section className="accounts" aria-label="Conta">
+      <span className="acc-title">Conta</span>
+      <div className="dd" ref={ref}>
+        <button className="dd-trigger" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+          <span className={selected ? "mono" : ""}>{selected ?? "Geral"}</span>
+          {active && active.alertCount > 0 && <span className="c alert"><span className="d" />{active.alertCount}</span>}
+          <Chevron open={open} />
         </button>
-        {accounts.map((a) => (
-          <button
-            key={a.accountId}
-            className={`acc-chip ${selected === a.accountId ? "on" : ""}`}
-            onClick={() => onSelect(a.accountId)}
-            title={`${a.txCount} transações · ${a.alertCount} alertas`}
-          >
-            <span className="mono">{a.accountId}</span>
-            {a.alertCount > 0 && <span className="c alert"><span className="d" />{a.alertCount}</span>}
-          </button>
-        ))}
+        {open && (
+          <div className="dd-menu" role="listbox">
+            <button className={`dd-item ${selected === null ? "on" : ""}`} role="option" aria-selected={selected === null} onClick={() => pick(null)}>
+              <span className="dd-main">Geral</span>
+              <span className="dd-side">{accounts.length} {accounts.length === 1 ? "conta" : "contas"}</span>
+              {selected === null && <Check />}
+            </button>
+            {accounts.map((a) => (
+              <button key={a.accountId} className={`dd-item ${selected === a.accountId ? "on" : ""}`} role="option" aria-selected={selected === a.accountId} onClick={() => pick(a.accountId)}>
+                <span className="dd-main mono">{a.accountId}</span>
+                <span className="dd-side">
+                  <span className="tnum">{a.txCount} tx</span>
+                  {a.alertCount > 0 && <span className="c alert"><span className="d" />{a.alertCount}</span>}
+                </span>
+                {selected === a.accountId && <Check />}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -514,7 +545,7 @@ export function App() {
         onRefresh={() => void refresh()}
       />
       <main className="main">
-        <AccountsBar accounts={snap.accounts} selected={account} onSelect={setAccount} />
+        <AccountsDropdown accounts={snap.accounts} selected={account} onSelect={setAccount} />
         <Tiles snap={snap} loading={loading} />
         <div className="cols">
           <RulesPanel snap={snap} loading={loading} />
