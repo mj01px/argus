@@ -46,6 +46,9 @@ mercado; aqui ele vira código.
   processados em ordem.
 - **Fraud Worker** (`src/Sentinel.FraudWorker`) — consumer no grupo `fraud-workers`.
   Aplica as regras e publica `alerts.raised`.
+- **Notifications** (`src/Sentinel.Notifications`) — segundo consumer group
+  (`notifications`) no tópico `alerts.raised`, mostrando dois grupos independentes
+  consumindo o mesmo tópico. "Envia" a notificação (aqui, via log).
 - **Sentinel.Contracts** — os contratos de evento compartilhados.
 
 ## Garantias de entrega (o ponto central)
@@ -142,7 +145,7 @@ curl http://localhost:8080/alerts
 
 ## Próximos passos
 
-- [ ] Serviço **Notifications** — outro consumer group em `alerts.raised` (demonstra
+- [x] Serviço **Notifications** — outro consumer group em `alerts.raised` (demonstra
       múltiplos grupos consumindo o mesmo tópico).
 - [x] Dashboard **React** consumindo `/transactions` e `/alerts` ao vivo.
 - [ ] Trocar Dapper por **EF Core** com migrations.

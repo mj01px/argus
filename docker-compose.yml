@@ -71,3 +71,13 @@ services:
     environment:
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=sentinel;Username=sentinel;Password=sentinel"
       Kafka__BootstrapServers: "redpanda:9092"
+
+  notifications:
+    build:
+      context: .
+      dockerfile: src/Sentinel.Notifications/Dockerfile
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      Kafka__BootstrapServers: "redpanda:9092"
