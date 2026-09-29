@@ -1,0 +1,71 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --card: #1e222b;
+  --border: #2a2f3a;
+  --text: #e6e8ec;
+  --muted: #8b93a1;
+  --accent: #7c3aed;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --ok: #22c55e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.app { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+header h1 { font-size: 22px; margin: 0; }
+
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.badge.ok { background: rgba(34, 197, 94, 0.15); color: var(--ok); }
+.badge.off { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+.form {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border);
+  padding: 12px; border-radius: 12px; margin-bottom: 20px;
+}
+.form input {
+  background: var(--card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 8px; font-size: 14px; width: 130px;
+}
+.form button {
+  background: var(--accent); color: white; border: 0;
+  padding: 8px 14px; border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.form button:disabled { opacity: 0.6; cursor: default; }
+.form .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+section h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; }
+section h2 small {
+  background: var(--card); color: var(--muted);
+  padding: 1px 8px; border-radius: 999px; font-size: 12px; margin-left: 6px;
+}
+
+.empty { color: var(--muted); font-size: 14px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+}
+.card.alert { border-left: 3px solid var(--danger); }
+.card .row { display: flex; justify-content: space-between; align-items: center; }
+.card .when { color: var(--muted); font-size: 12px; }
+.card .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.card .reason { font-size: 14px; margin-top: 4px; }
+
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+.tag.high_amount { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+.tag.velocity { background: rgba(245, 158, 11, 0.15); color: var(--warn); }

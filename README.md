@@ -93,6 +93,19 @@ dotnet run --project src/Sentinel.Transactions   # terminal 1
 dotnet run --project src/Sentinel.FraudWorker     # terminal 2
 ```
 
+### Dashboard (React + Vite)
+
+Mostra transações e alertas ao vivo (polling 2s) e tem um formulário para disparar
+transações e ver as regras dispararem na hora.
+
+```bash
+cd dashboard
+npm install
+npm run dev        # http://localhost:5173
+```
+
+A URL da API é configurável por `VITE_API_URL` (padrão `http://localhost:8080`).
+
 ## Testando
 
 Uma transação normal (não gera alerta):
@@ -131,7 +144,7 @@ curl http://localhost:8080/alerts
 
 - [ ] Serviço **Notifications** — outro consumer group em `alerts.raised` (demonstra
       múltiplos grupos consumindo o mesmo tópico).
-- [ ] Dashboard **React** consumindo `/transactions` e `/alerts` ao vivo.
+- [x] Dashboard **React** consumindo `/transactions` e `/alerts` ao vivo.
 - [ ] Trocar Dapper por **EF Core** com migrations.
 - [ ] Testes de integração com **Testcontainers**.
 - [ ] Deploy: imagens no registry + `docker compose` num free tier.

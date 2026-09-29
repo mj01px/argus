@@ -10,5 +10,10 @@ artifacts/
 .idea/
 .vs/
 
+# Node / frontend
+node_modules/
+dist/
+*.local
+
 # OS
 .DS_Store

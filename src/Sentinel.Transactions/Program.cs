@@ -25,7 +25,14 @@ builder.Services.AddSingleton<IProducer<string, string>>(_ =>
         EnableIdempotence = true,
     }).Build());
 
+// CORS liberado para o dashboard local (apenas dev).
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policy =>
+        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
 var app = builder.Build();
+
+app.UseCors();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
