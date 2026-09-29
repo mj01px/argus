@@ -72,21 +72,49 @@ app.MapPost("/transactions", async (
     return Results.Created($"/transactions/{evt.Id}", evt);
 });
 
-app.MapGet("/transactions", async (NpgsqlDataSource db, int limit = 50) =>
+app.MapGet("/transactions", async (NpgsqlDataSource db, int limit = 50, string? account = null) =>
 {
+    var acc = string.IsNullOrWhiteSpace(account) ? null : account.Trim();
     await using var conn = await db.OpenConnectionAsync();
     var rows = await conn.QueryAsync<TransactionRow>(
-        "SELECT id, account_id, amount, currency, created_at FROM transactions ORDER BY created_at DESC LIMIT @limit",
-        new { limit = Math.Clamp(limit, 1, 200) });
+        """
+        SELECT id, account_id, amount, currency, created_at FROM transactions
+        WHERE (@acc IS NULL OR account_id = @acc)
+        ORDER BY created_at DESC LIMIT @limit
+        """,
+        new { acc, limit = Math.Clamp(limit, 1, 200) });
     return Results.Ok(rows);
 });
 
-app.MapGet("/alerts", async (NpgsqlDataSource db, int limit = 50) =>
+app.MapGet("/alerts", async (NpgsqlDataSource db, int limit = 50, string? account = null) =>
 {
+    var acc = string.IsNullOrWhiteSpace(account) ? null : account.Trim();
     await using var conn = await db.OpenConnectionAsync();
     var rows = await conn.QueryAsync<AlertRow>(
-        "SELECT id, transaction_id, account_id, rule, reason, amount, created_at FROM alerts ORDER BY created_at DESC LIMIT @limit",
-        new { limit = Math.Clamp(limit, 1, 200) });
+        """
+        SELECT id, transaction_id, account_id, rule, reason, amount, created_at FROM alerts
+        WHERE (@acc IS NULL OR account_id = @acc)
+        ORDER BY created_at DESC LIMIT @limit
+        """,
+        new { acc, limit = Math.Clamp(limit, 1, 200) });
+    return Results.Ok(rows);
+});
+
+// Contas "cadastradas" = contas que já transacionaram, com seus agregados.
+app.MapGet("/accounts", async (NpgsqlDataSource db) =>
+{
+    await using var conn = await db.OpenConnectionAsync();
+    var rows = await conn.QueryAsync<AccountRow>(
+        """
+        SELECT t.account_id,
+               COUNT(*)                       AS tx_count,
+               COALESCE(SUM(t.amount), 0)     AS volume,
+               MAX(t.created_at)              AS last_activity,
+               (SELECT COUNT(*) FROM alerts a WHERE a.account_id = t.account_id) AS alert_count
+        FROM transactions t
+        GROUP BY t.account_id
+        ORDER BY last_activity DESC
+        """);
     return Results.Ok(rows);
 });
 
@@ -95,3 +123,4 @@ app.Run();
 record CreateTransaction(string AccountId, decimal Amount, string? Currency);
 record TransactionRow(Guid Id, string AccountId, decimal Amount, string Currency, DateTime CreatedAt);
 record AlertRow(Guid Id, Guid TransactionId, string AccountId, string Rule, string Reason, decimal Amount, DateTime CreatedAt);
+record AccountRow(string AccountId, long TxCount, decimal Volume, DateTime LastActivity, long AlertCount);

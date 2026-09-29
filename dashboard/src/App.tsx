@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Alert, type Transaction } from "./api";
+import { api, type Account, type Alert, type Transaction } from "./api";
 
 const POLL_MS = 2000;
 
@@ -51,10 +51,10 @@ const IconTriangle = ({ size = 13 }: { size?: number }) => <svg width={size} hei
 const IconBolt = ({ size = 13 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E8A93A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" /></svg>;
 
 /* ---------------- live data hook ---------------- */
-interface Snap { txns: Transaction[]; alerts: Alert[]; at: number | null; }
-const EMPTY: Snap = { txns: [], alerts: [], at: null };
+interface Snap { txns: Transaction[]; alerts: Alert[]; accounts: Account[]; at: number | null; }
+const EMPTY: Snap = { txns: [], alerts: [], accounts: [], at: null };
 
-function useLive(paused: boolean) {
+function useLive(paused: boolean, account: string | null) {
   const [snap, setSnap] = useState<Snap>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,9 +70,13 @@ function useLive(paused: boolean) {
   pausedRef.current = paused;
 
   const fetchData = useCallback(async (): Promise<Snap> => {
-    const [txns, alerts] = await Promise.all([api.transactions(), api.alerts()]);
-    return { txns, alerts, at: Date.now() };
-  }, []);
+    const [txns, alerts, accounts] = await Promise.all([
+      api.transactions(50, account),
+      api.alerts(50, account),
+      api.accounts(),
+    ]);
+    return { txns, alerts, accounts, at: Date.now() };
+  }, [account]);
 
   const apply = useCallback((s: Snap) => {
     const fresh = new Set<string>();
@@ -122,9 +126,12 @@ function useLive(paused: boolean) {
     setTimeout(() => setRefreshing(false), 300);
   }, [reload]);
 
-  // initial load
+  // initial load + reload whenever the account scope changes
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    primed.current = false;
+    shown.current = new Set();
     (async () => {
       try { const s = await fetchData(); if (alive) apply(s); }
       catch { if (alive) setOnline(false); }
@@ -245,12 +252,15 @@ function RulesPanel({ snap, loading }: { snap: Snap; loading: boolean }) {
 }
 
 /* ---------------- simulate ---------------- */
-function SimulatePanel({ reload, snapAlerts }: { reload: () => Promise<Snap>; snapAlerts: number }) {
+function SimulatePanel({ reload, snapAlerts, scopeAccount }: { reload: () => Promise<Snap>; snapAlerts: number; scopeAccount: string | null }) {
   const [mode, setMode] = useState<Mode>("normal");
   const [account, setAccount] = useState("acc-1");
   const [amount, setAmount] = useState("150");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; warn?: boolean; text: string } | null>(null);
+
+  // When a specific account is selected in the bar, target it in the simulator.
+  useEffect(() => { if (scopeAccount) setAccount(scopeAccount); }, [scopeAccount]);
 
   const send = async () => {
     if (sending) return;
@@ -452,10 +462,37 @@ function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newI
   );
 }
 
+/* ---------------- accounts bar ---------------- */
+function AccountsBar({ accounts, selected, onSelect }: { accounts: Account[]; selected: string | null; onSelect: (a: string | null) => void }) {
+  return (
+    <section className="accounts" aria-label="Contas">
+      <span className="acc-title">Contas</span>
+      <div className="acc-chips">
+        <button className={`acc-chip ${selected === null ? "on" : ""}`} onClick={() => onSelect(null)}>
+          <span>Geral</span>
+          <span className="c">{accounts.length}</span>
+        </button>
+        {accounts.map((a) => (
+          <button
+            key={a.accountId}
+            className={`acc-chip ${selected === a.accountId ? "on" : ""}`}
+            onClick={() => onSelect(a.accountId)}
+            title={`${a.txCount} transações · ${a.alertCount} alertas`}
+          >
+            <span className="mono">{a.accountId}</span>
+            {a.alertCount > 0 && <span className="c alert"><span className="d" />{a.alertCount}</span>}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ---------------- app ---------------- */
 export function App() {
   const [paused, setPaused] = useState(false);
-  const { snap, loading, refreshing, online, now, pending, newIds, refresh, reload } = useLive(paused);
+  const [account, setAccount] = useState<string | null>(null);
+  const { snap, loading, refreshing, online, now, pending, newIds, refresh, reload } = useLive(paused, account);
 
   const secs = snap.at ? Math.max(0, Math.floor((now - snap.at) / 1000)) : null;
   const updatedText = !online ? "sem conexão"
@@ -477,10 +514,11 @@ export function App() {
         onRefresh={() => void refresh()}
       />
       <main className="main">
+        <AccountsBar accounts={snap.accounts} selected={account} onSelect={setAccount} />
         <Tiles snap={snap} loading={loading} />
         <div className="cols">
           <RulesPanel snap={snap} loading={loading} />
-          <SimulatePanel reload={reload} snapAlerts={snap.alerts.length} />
+          <SimulatePanel reload={reload} snapAlerts={snap.alerts.length} scopeAccount={account} />
         </div>
         <div className="cols">
           <AlertsPanel snap={snap} loading={loading} newIds={newIds} />

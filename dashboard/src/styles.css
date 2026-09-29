@@ -174,3 +174,16 @@ button, input { font-family: inherit; }
 .sk-ic { width: 28px; height: 28px; border-radius: 7px; background: #17191F; }
 .sk-line { height: 10px; border-radius: 4px; background: #17191F; }
 .sk-line.sm { height: 8px; background: #15171C; }
+
+/* ---------- accounts bar ---------- */
+.accounts { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.acc-title { font-size: 12.5px; color: var(--muted); flex: none; }
+.acc-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; min-width: 0; }
+.acc-chips::-webkit-scrollbar { height: 6px; }
+.acc-chips::-webkit-scrollbar-thumb { background: #2A2D35; border-radius: 6px; }
+.acc-chip { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--text-2); font-size: 13px; cursor: pointer; white-space: nowrap; flex: none; transition: color .12s, background .12s, border-color .12s; }
+.acc-chip:hover { color: var(--text); border-color: var(--border-2); }
+.acc-chip.on { background: var(--border-3); color: var(--text); border-color: #2E323C; }
+.acc-chip .c { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 4px; }
+.acc-chip .c.alert { color: var(--red); }
+.acc-chip .c.alert .d { width: 5px; height: 5px; border-radius: 50%; background: var(--red); }
