@@ -1,4 +1,4 @@
-namespace Sentinel.Contracts;
+namespace Argus.Contracts;
 
 /// <summary>Nomes dos topicos Kafka, compartilhados por producer e consumer.</summary>
 public static class Topics

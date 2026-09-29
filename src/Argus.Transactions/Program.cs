@@ -2,12 +2,12 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Dapper;
 using Npgsql;
-using Sentinel.Contracts;
+using Argus.Contracts;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
-    ?? "Host=localhost;Port=5432;Database=sentinel;Username=sentinel;Password=sentinel";
+    ?? "Host=localhost;Port=5432;Database=argus;Username=argus;Password=argus";
 var bootstrapServers = builder.Configuration["Kafka:BootstrapServers"] ?? "localhost:9092";
 
 // Dapper mapeia colunas snake_case (account_id) para propriedades PascalCase (AccountId).

@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Confluent.Kafka;
-using Sentinel.Contracts;
+using Argus.Contracts;
 
-namespace Sentinel.Notifications;
+namespace Argus.Notifications;
 
 /// <summary>
 /// Segundo consumer group no MESMO topico alerts.raised. Enquanto o Fraud Worker

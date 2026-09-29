@@ -1,6 +1,6 @@
 <div align="center">
 
-# Sentinel
+# Argus
 
 **Pipeline de transações com detecção de fraude em tempo real — event-driven, em C#/.NET.**
 
@@ -40,16 +40,16 @@ mercado; aqui ele vira código.
         PostgreSQL  ◄───────────── grava alertas ────────  (INSERT idempotente)
 ```
 
-- **Transactions API** (`src/Sentinel.Transactions`) — producer. `POST /transactions`
+- **Transactions API** (`src/Argus.Transactions`) — producer. `POST /transactions`
   valida, grava no Postgres e publica `transactions.created`. A **key do evento é o
   `accountId`**, então todos os eventos de uma conta caem na mesma partição e são
   processados em ordem.
-- **Fraud Worker** (`src/Sentinel.FraudWorker`) — consumer no grupo `fraud-workers`.
+- **Fraud Worker** (`src/Argus.FraudWorker`) — consumer no grupo `fraud-workers`.
   Aplica as regras e publica `alerts.raised`.
-- **Notifications** (`src/Sentinel.Notifications`) — segundo consumer group
+- **Notifications** (`src/Argus.Notifications`) — segundo consumer group
   (`notifications`) no tópico `alerts.raised`, mostrando dois grupos independentes
   consumindo o mesmo tópico. "Envia" a notificação (aqui, via log).
-- **Sentinel.Contracts** — os contratos de evento compartilhados.
+- **Argus.Contracts** — os contratos de evento compartilhados.
 
 ## Garantias de entrega (o ponto central)
 
@@ -92,8 +92,8 @@ Sobe Redpanda (Kafka), Postgres, a API e o worker. O **console do Kafka** fica e
 
 ```bash
 docker compose up -d redpanda postgres console   # só a infra
-dotnet run --project src/Sentinel.Transactions   # terminal 1
-dotnet run --project src/Sentinel.FraudWorker     # terminal 2
+dotnet run --project src/Argus.Transactions   # terminal 1
+dotnet run --project src/Argus.FraudWorker     # terminal 2
 ```
 
 ### Dashboard (React + Vite)

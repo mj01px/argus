@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using Sentinel.Contracts;
+using Argus.Contracts;
 
-namespace Sentinel.FraudWorker;
+namespace Argus.FraudWorker;
 
 public record RuleHit(string Rule, string Reason);
 

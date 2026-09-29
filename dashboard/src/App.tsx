@@ -70,7 +70,7 @@ export function App() {
   return (
     <div className="app">
       <header>
-        <h1>🛡️ Sentinel</h1>
+        <h1>🛡️ Argus</h1>
         <span className={online ? "badge ok" : "badge off"}>{online ? "conectado" : "API offline"}</span>
       </header>
 

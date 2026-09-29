@@ -1,4 +1,4 @@
-using Sentinel.FraudWorker;
+using Argus.FraudWorker;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<Worker>();

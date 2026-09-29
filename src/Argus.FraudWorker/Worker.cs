@@ -2,9 +2,9 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Dapper;
 using Npgsql;
-using Sentinel.Contracts;
+using Argus.Contracts;
 
-namespace Sentinel.FraudWorker;
+namespace Argus.FraudWorker;
 
 public class Worker : BackgroundService
 {
@@ -21,7 +21,7 @@ public class Worker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var connectionString = _config.GetConnectionString("Postgres")
-            ?? "Host=localhost;Port=5432;Database=sentinel;Username=sentinel;Password=sentinel";
+            ?? "Host=localhost;Port=5432;Database=argus;Username=argus;Password=argus";
         var bootstrapServers = _config["Kafka:BootstrapServers"] ?? "localhost:9092";
 
         DefaultTypeMap.MatchNamesWithUnderscores = true;

@@ -1,4 +1,4 @@
-name: sentinel
+name: argus
 
 services:
   redpanda:
@@ -31,15 +31,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel
-      POSTGRES_DB: sentinel
+      POSTGRES_USER: argus
+      POSTGRES_PASSWORD: argus
+      POSTGRES_DB: argus
     ports:
       - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      test: ["CMD-SHELL", "pg_isready -U argus"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -47,14 +47,14 @@ services:
   transactions-api:
     build:
       context: .
-      dockerfile: src/Sentinel.Transactions/Dockerfile
+      dockerfile: src/Argus.Transactions/Dockerfile
     depends_on:
       redpanda:
         condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=sentinel;Username=sentinel;Password=sentinel"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=argus;Username=argus;Password=argus"
       Kafka__BootstrapServers: "redpanda:9092"
     ports:
       - "8080:8080"
@@ -62,20 +62,20 @@ services:
   fraud-worker:
     build:
       context: .
-      dockerfile: src/Sentinel.FraudWorker/Dockerfile
+      dockerfile: src/Argus.FraudWorker/Dockerfile
     depends_on:
       redpanda:
         condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=sentinel;Username=sentinel;Password=sentinel"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=argus;Username=argus;Password=argus"
       Kafka__BootstrapServers: "redpanda:9092"
 
   notifications:
     build:
       context: .
-      dockerfile: src/Sentinel.Notifications/Dockerfile
+      dockerfile: src/Argus.Notifications/Dockerfile
     depends_on:
       redpanda:
         condition: service_healthy
