@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="argus" x1="4" y1="3" x2="20" y2="21" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#4C8DFF"/>
+    </linearGradient>
+  </defs>
+  <path d="M12 2.4l7.6 3.2v5.4c0 4.9-3.2 9-7.6 10.8C7.6 20 4.4 15.9 4.4 11V5.6L12 2.4z" fill="url(#argus)"/>
+  <ellipse cx="12" cy="11" rx="4.5" ry="3" fill="none" stroke="#fff" stroke-width="1.3"/>
+  <circle cx="12" cy="11" r="1.55" fill="#fff"/>
+</svg>

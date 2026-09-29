@@ -2,257 +2,491 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Alert, type Transaction } from "./api";
 
 const POLL_MS = 2000;
-const HIGH_AMOUNT = 10000;
 
 type RuleKey = "high_amount" | "velocity";
-const RULE_LABEL: Record<string, string> = { high_amount: "Valor alto", velocity: "Velocity" };
+interface RuleDef { label: string; desc: string; color: string; tint: string; severity: string; }
+const RULES: Record<RuleKey, RuleDef> = {
+  high_amount: { label: "Valor alto", desc: "acima do limite", color: "#F0616D", tint: "rgba(240,97,109,.12)", severity: "Crítico" },
+  velocity: { label: "Velocity", desc: "frequência em 60s", color: "#E8A93A", tint: "rgba(232,169,58,.12)", severity: "Atenção" },
+};
+const RULE_KEYS: RuleKey[] = ["high_amount", "velocity"];
 
-function money(value: number) {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-function time(iso: string) {
-  return new Date(iso).toLocaleTimeString("pt-BR");
-}
-function secondsAgo(from: number) {
-  return Math.max(0, Math.round((Date.now() - from) / 1000));
+type Mode = "normal" | "high" | "burst";
+const MODES: { id: Mode; label: string; hint: string }[] = [
+  { id: "normal", label: "Transação normal", hint: "Uma transação com a conta e o valor informados." },
+  { id: "high", label: "Valor alto", hint: "Valor fixo de R$ 25.000 — dispara a regra Valor alto." },
+  { id: "burst", label: "Rajada 5×", hint: "5 transações em sequência na mesma conta — dispara Velocity." },
+];
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour12: false });
+function parseAmount(s: string): number {
+  const t = s.trim().replace(/\s/g, "");
+  const v = t.includes(",") ? Number(t.replace(/\./g, "").replace(",", ".")) : Number(t);
+  return isFinite(v) ? v : NaN;
 }
 
-/** Live polling with pause + tracking of which ids are newly arrived (for the entry animation). */
-function useLivePoll(paused: boolean) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+/* ---------------- icons ---------------- */
+const Logo = () => (
+  <svg className="logo" viewBox="0 0 24 24" aria-hidden="true">
+    <defs>
+      <linearGradient id="argusG" x1="4" y1="3" x2="20" y2="21" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#8B5CF6" /><stop offset="1" stopColor="#4C8DFF" />
+      </linearGradient>
+    </defs>
+    <path d="M12 2.4l7.6 3.2v5.4c0 4.9-3.2 9-7.6 10.8C7.6 20 4.4 15.9 4.4 11V5.6L12 2.4z" fill="url(#argusG)" />
+    <ellipse cx="12" cy="11" rx="4.5" ry="3" fill="none" stroke="#fff" strokeWidth="1.3" />
+    <circle cx="12" cy="11" r="1.55" fill="#fff" />
+  </svg>
+);
+const IconPause = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4.5" width="4" height="15" rx="1" /><rect x="14" y="4.5" width="4" height="15" rx="1" /></svg>;
+const IconPlay = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z" /></svg>;
+const IconRefresh = ({ spin }: { spin: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: spin ? "argusSpin .8s linear infinite" : undefined }}>
+    <path d="M20 12a8 8 0 1 1-2.34-5.66" /><path d="M20 4v4.5h-4.5" />
+  </svg>
+);
+const IconCheck = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3FBF7F" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
+const IconTriangle = ({ size = 13 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F0616D" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4l9 16H3z" /><path d="M12 10v4" /><path d="M12 17.2v.1" /></svg>;
+const IconBolt = ({ size = 13 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E8A93A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" /></svg>;
+
+/* ---------------- live data hook ---------------- */
+interface Snap { txns: Transaction[]; alerts: Alert[]; at: number | null; }
+const EMPTY: Snap = { txns: [], alerts: [], at: null };
+
+function useLive(paused: boolean) {
+  const [snap, setSnap] = useState<Snap>(EMPTY);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [online, setOnline] = useState(true);
-  const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
+  const [now, setNow] = useState(Date.now());
+  const [pending, setPending] = useState(0);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
-  const seen = useRef<Set<string>>(new Set());
+  const latest = useRef<Snap | null>(null);
+  const shown = useRef<Set<string>>(new Set());
   const primed = useRef(false);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
 
-  const refresh = useCallback(async () => {
+  const fetchData = useCallback(async (): Promise<Snap> => {
+    const [txns, alerts] = await Promise.all([api.transactions(), api.alerts()]);
+    return { txns, alerts, at: Date.now() };
+  }, []);
+
+  const apply = useCallback((s: Snap) => {
+    const fresh = new Set<string>();
+    const next = new Set<string>();
+    for (const it of [...s.txns, ...s.alerts]) {
+      next.add(it.id);
+      if (primed.current && !shown.current.has(it.id)) fresh.add(it.id);
+    }
+    primed.current = true;
+    shown.current = next;
+    latest.current = s;
+    setNewIds(fresh);
+    setSnap(s);
+    setPending(0);
+  }, []);
+
+  const poll = useCallback(async () => {
     try {
-      const [tx, al] = await Promise.all([api.transactions(), api.alerts()]);
-      const fresh = new Set<string>();
-      for (const item of [...tx, ...al]) {
-        if (primed.current && !seen.current.has(item.id)) fresh.add(item.id);
-        seen.current.add(item.id);
-      }
-      primed.current = true;
-      setTransactions(tx);
-      setAlerts(al);
-      setNewIds(fresh);
+      const s = await fetchData();
+      latest.current = s;
       setOnline(true);
-      setUpdatedAt(Date.now());
+      if (pausedRef.current) {
+        setPending(s.txns.filter((t) => !shown.current.has(t.id)).length);
+      } else {
+        apply(s);
+      }
     } catch {
       setOnline(false);
     }
-  }, []);
+  }, [fetchData, apply]);
 
-  useEffect(() => {
-    refresh();
-    if (paused) return;
-    const id = setInterval(refresh, POLL_MS);
-    return () => clearInterval(id);
-  }, [refresh, paused]);
-
-  return { transactions, alerts, online, updatedAt, newIds, refresh };
-}
-
-function StatTiles({ transactions, alerts }: { transactions: Transaction[]; alerts: Alert[] }) {
-  const volume = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const rate = transactions.length ? Math.round((alerts.length / transactions.length) * 100) : 0;
-  return (
-    <div className="tiles">
-      <div className="tile blue">
-        <span className="accent" />
-        <div className="label">Transações</div>
-        <div className="value">{transactions.length}</div>
-        <div className="sub">recentes</div>
-      </div>
-      <div className="tile crit">
-        <span className="accent" />
-        <div className="label">Alertas</div>
-        <div className="value">{alerts.length}</div>
-        <div className="sub">de fraude</div>
-      </div>
-      <div className="tile good">
-        <span className="accent" />
-        <div className="label">Volume</div>
-        <div className="value">{money(volume)}</div>
-        <div className="sub">soma das transações</div>
-      </div>
-      <div className="tile warn">
-        <span className="accent" />
-        <div className="label">Taxa de alerta</div>
-        <div className="value">{rate}%</div>
-        <div className="sub">alertas / transações</div>
-      </div>
-    </div>
-  );
-}
-
-function RuleChart({ alerts }: { alerts: Alert[] }) {
-  const rules: RuleKey[] = ["high_amount", "velocity"];
-  const counts = rules.map((r) => ({ rule: r, n: alerts.filter((a) => a.rule === r).length }));
-  const max = Math.max(1, ...counts.map((c) => c.n));
-  const total = alerts.length || 1;
-  return (
-    <div className="panel chart">
-      <h2>Alertas por regra</h2>
-      {alerts.length === 0 ? (
-        <p className="empty">Nenhum alerta ainda — dispare uma transação suspeita abaixo.</p>
-      ) : (
-        counts.map((c) => (
-          <div className="bar-row" key={c.rule}>
-            <span className="bar-label"><span className={`tag ${c.rule}`}>{RULE_LABEL[c.rule]}</span></span>
-            <div className="bar-track" title={`${c.n} alerta(s) · ${Math.round((c.n / total) * 100)}%`}>
-              <div className={`bar-fill ${c.rule}`} style={{ width: `${(c.n / max) * 100}%` }} />
-            </div>
-            <span className="bar-val">{c.n}</span>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-function Controls({ onFire }: { onFire: () => void }) {
-  const [accountId, setAccountId] = useState("acc-1");
-  const [amount, setAmount] = useState("150");
-  const [busy, setBusy] = useState(false);
-
-  const fire = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
+  const reload = useCallback(async (): Promise<Snap> => {
     try {
-      await fn();
-      onFire();
-    } catch (err) {
-      console.error("Falha ao enviar transação:", (err as Error).message);
-    } finally {
-      setBusy(false);
+      const s = await fetchData();
+      apply(s);
+      setOnline(true);
+      return s;
+    } catch {
+      setOnline(false);
+      return snap;
+    }
+  }, [fetchData, apply, snap]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await reload();
+    setTimeout(() => setRefreshing(false), 300);
+  }, [reload]);
+
+  // initial load
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try { const s = await fetchData(); if (alive) apply(s); }
+      catch { if (alive) setOnline(false); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [fetchData, apply]);
+
+  // poll + clock
+  useEffect(() => {
+    const p = setInterval(poll, POLL_MS);
+    const c = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearInterval(p); clearInterval(c); };
+  }, [poll]);
+
+  // resume → apply buffered snapshot
+  useEffect(() => {
+    if (!paused && latest.current) apply(latest.current);
+  }, [paused, apply]);
+
+  return { snap, loading, refreshing, online, now, pending, newIds, refresh, reload };
+}
+
+/* ---------------- header ---------------- */
+function Header({ live, paused, refreshing, updatedText, updatedTitle, pending, onToggle, onRefresh }: {
+  live: boolean; paused: boolean; refreshing: boolean; updatedText: string; updatedTitle: string;
+  pending: number; onToggle: () => void; onRefresh: () => void;
+}) {
+  return (
+    <header className="hdr">
+      <div className="hdr-in">
+        <div className="brand">
+          <Logo />
+          <span className="name">Argus</span>
+          <span className="sep">/</span>
+          <span className="sub">Fraud Monitor</span>
+        </div>
+        <div className="hdr-right">
+          <div className="live" title={updatedTitle}>
+            <span className={`dot ${live ? "on" : "off"}`} />
+            <span className="lbl" style={{ color: live ? "#3FBF7F" : "#9297A3" }}>{paused ? "Pausado" : "Ao vivo"}</span>
+            <span className="sep" style={{ color: "#3A3E48" }}>·</span>
+            <span className="tnum" style={{ whiteSpace: "nowrap" }}>{updatedText}</span>
+          </div>
+          {paused && pending > 0 && <span className="pending">{pending === 1 ? "1 nova" : `${pending} novas`}</span>}
+          <button className="hbtn pad" onClick={onToggle} aria-pressed={paused} title={paused ? "Retomar atualização automática" : "Pausar atualização automática"}>
+            {paused ? <IconPlay /> : <IconPause />}<span>{paused ? "Retomar" : "Pausar"}</span>
+          </button>
+          <button className="hbtn sq" onClick={onRefresh} disabled={refreshing} title="Atualizar agora" aria-label="Atualizar agora">
+            <IconRefresh spin={refreshing} />
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ---------------- tiles ---------------- */
+function Tiles({ snap, loading }: { snap: Snap; loading: boolean }) {
+  const vol = snap.txns.reduce((s, t) => s + t.amount, 0);
+  const accs = new Set(snap.alerts.map((a) => a.accountId)).size;
+  const rate = snap.txns.length ? Math.round((snap.alerts.length / snap.txns.length) * 100) + "%" : "0%";
+  const dash = (v: string | number) => (loading ? "—" : v);
+  const tiles = [
+    { k: "Transações", v: dash(snap.txns.length), s: "recentes · até 50" },
+    { k: "Alertas de fraude", v: dash(snap.alerts.length), s: loading || !snap.alerts.length ? "de fraude" : `de fraude · ${accs} ${accs === 1 ? "conta" : "contas"}` },
+    { k: "Volume monitorado", v: dash(brl(vol)), s: "soma das transações" },
+    { k: "Taxa de alerta", v: dash(rate), s: "alertas / transações" },
+  ];
+  return (
+    <section className="tiles" aria-label="Indicadores">
+      {tiles.map((t) => (
+        <div className="tile" key={t.k}>
+          <span className="k">{t.k}</span>
+          <span className="v">{t.v}</span>
+          <span className="s">{t.s}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/* ---------------- rules ---------------- */
+function RulesPanel({ snap, loading }: { snap: Snap; loading: boolean }) {
+  const total = snap.alerts.length;
+  const rows = RULE_KEYS
+    .map((k) => ({ k, ...RULES[k], n: snap.alerts.filter((a) => a.rule === k).length }))
+    .sort((a, b) => b.n - a.n);
+  return (
+    <section className="panel pad rules" aria-label="Alertas por regra">
+      <div className="panel-h">
+        <h2>Alertas por regra</h2>
+        <span className="aside tnum">{loading ? "" : `${total} ${total === 1 ? "alerta" : "alertas"}`}</span>
+      </div>
+      <div className="list">
+        {rows.map((r) => {
+          const pct = !total ? 0 : Math.round((r.n / total) * 100);
+          return (
+            <div className="rule" key={r.k}>
+              <div className="top">
+                <span className="lhs">
+                  <span className="sq" style={{ background: r.color }} />
+                  <span>{r.label}</span>
+                  <span className="desc">{r.desc}</span>
+                </span>
+                <span className="rhs">
+                  <span className="cnt">{loading ? "—" : r.n}</span>
+                  <span className="pct">{loading ? "0%" : pct + "%"}</span>
+                </span>
+              </div>
+              <div className="track"><div className="fill" style={{ width: loading ? "0%" : pct + "%", background: r.color }} /></div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- simulate ---------------- */
+function SimulatePanel({ reload, snapAlerts }: { reload: () => Promise<Snap>; snapAlerts: number }) {
+  const [mode, setMode] = useState<Mode>("normal");
+  const [account, setAccount] = useState("acc-1");
+  const [amount, setAmount] = useState("150");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; warn?: boolean; text: string } | null>(null);
+
+  const send = async () => {
+    if (sending) return;
+    const acc = account.trim();
+    if (!acc) return setResult({ ok: false, text: "Informe o identificador da conta" });
+    const v = mode === "high" ? 25000 : parseAmount(amount);
+    if (!(v > 0)) return setResult({ ok: false, text: "Informe um valor maior que zero" });
+    setSending(true); setResult(null);
+    const before = snapAlerts;
+    const count = mode === "burst" ? 5 : 1;
+    const tx = count === 1 ? "1 transação enviada" : `${count} transações enviadas`;
+    try {
+      for (let i = 0; i < count; i++) await api.createTransaction(acc, v);
+      await reload();
+      setResult({ ok: true, text: `${tx} · avaliando regras…` });
+      setSending(false);
+      // Alerts are eventual: the API returns immediately, then the Fraud Worker
+      // consumes the Kafka event and writes the alert a beat later. Poll briefly
+      // for the delta so the result reflects the real event-driven flow.
+      void (async () => {
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => setTimeout(r, 700));
+          const s = await reload();
+          const delta = s.alerts.length - before;
+          if (delta > 0) {
+            const al = delta === 1 ? "1 alerta gerado" : `${delta} alertas gerados`;
+            setResult({ ok: true, warn: true, text: `${tx} · ${al}` });
+            return;
+          }
+        }
+        setResult({ ok: true, text: `${tx} · nenhum alerta` });
+      })();
+    } catch (e) {
+      setResult({ ok: false, text: `Falha: ${(e as Error).message}` });
+      setSending(false);
     }
   };
 
-  const burst = async () => {
-    for (let i = 0; i < 5; i++) await api.createTransaction("acc-burst", 50);
-  };
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void fire(() => api.createTransaction(accountId.trim() || "acc-1", Number(amount) || 0));
-  };
+  const resultColor = !result ? "#9297A3" : !result.ok ? "#F0616D" : result.warn ? "#E8A93A" : "#3FBF7F";
+  const hint = MODES.find((m) => m.id === mode)!.hint;
 
   return (
-    <div className="controls">
-      <div className="grp">
-        <button className="btn" disabled={busy} onClick={() => void fire(() => api.createTransaction("acc-1", 150))}>
-          Transação normal
-        </button>
-        <button className="btn crit" disabled={busy} onClick={() => void fire(() => api.createTransaction("acc-1", 25000))}>
-          ⚠ Valor alto (R$ 25.000)
-        </button>
-        <button className="btn warn" disabled={busy} onClick={() => void fire(burst)}>
-          ⚡ Rajada 5× (velocity)
+    <section className="panel pad sim" aria-label="Simular transação">
+      <div className="panel-h">
+        <h2>Simular transação</h2>
+        <span className="aside">envia ao pipeline de regras</span>
+      </div>
+      <div className="seg" role="radiogroup" aria-label="Tipo de simulação">
+        {MODES.map((m) => (
+          <button key={m.id} role="radio" aria-checked={mode === m.id} className={mode === m.id ? "on" : ""} onClick={() => { setMode(m.id); setResult(null); }}>
+            {m.id === "normal" && <IconCheck />}{m.id === "high" && <IconTriangle />}{m.id === "burst" && <IconBolt />}
+            <span>{m.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="sim-fields">
+        <label className="field">
+          Conta
+          <input value={account} onChange={(e) => setAccount(e.target.value)} spellCheck={false} />
+        </label>
+        <label className="field">
+          {mode === "burst" ? "Valor por transação" : "Valor"}
+          <span className="prefixed">
+            <span>R$</span>
+            <input
+              value={mode === "high" ? "25.000,00" : amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={mode === "high"}
+              inputMode="decimal"
+            />
+          </span>
+        </label>
+        <button className="send" onClick={send} disabled={sending}>
+          {sending && <span className="spinner" />}
+          <span>{sending ? "Enviando…" : mode === "burst" ? "Enviar rajada" : "Enviar transação"}</span>
         </button>
       </div>
-      <form className="grp" onSubmit={submit}>
-        <input className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="conta" />
-        <input className="field" value={amount} onChange={(e) => setAmount(e.target.value)} type="number" min="0" step="0.01" placeholder="valor" />
-        <button className="btn primary" disabled={busy}>{busy ? "…" : "Enviar"}</button>
-      </form>
-    </div>
+      <div className="sim-foot">
+        <span className="hint">{hint}</span>
+        {result && (
+          <span className="result" role="status" style={{ color: resultColor }}>
+            <span className="d" style={{ background: resultColor }} />{result.text}
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 
-function AlertsPanel({ alerts, newIds }: { alerts: Alert[]; newIds: Set<string> }) {
+/* ---------------- alerts ---------------- */
+function AlertsPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newIds: Set<string> }) {
   const [filter, setFilter] = useState<"all" | RuleKey>("all");
-  const shown = filter === "all" ? alerts : alerts.filter((a) => a.rule === filter);
+  const cnt = { high_amount: snap.alerts.filter((a) => a.rule === "high_amount").length, velocity: snap.alerts.filter((a) => a.rule === "velocity").length };
+  const shown = filter === "all" ? snap.alerts : snap.alerts.filter((a) => a.rule === filter);
+  const filters: { id: "all" | RuleKey; label: string; count: number }[] = [
+    { id: "all", label: "Todos", count: snap.alerts.length },
+    { id: "high_amount", label: "Valor alto", count: cnt.high_amount },
+    { id: "velocity", label: "Velocity", count: cnt.velocity },
+  ];
   return (
-    <section className="panel">
-      <h2>
-        Alertas <span className="count">{shown.length}</span>
-        <div className="chips">
-          {(["all", "high_amount", "velocity"] as const).map((f) => (
-            <button key={f} className={`chip ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
-              {f === "all" ? "Todos" : RULE_LABEL[f]}
+    <section className="panel lp alerts" aria-label="Alertas">
+      <div className="lp-h">
+        <div className="title"><h2>Alertas</h2><span className="badge">{loading ? "—" : snap.alerts.length}</span></div>
+        <div className="tabs" role="tablist" aria-label="Filtrar alertas">
+          {filters.map((f) => (
+            <button key={f.id} role="tab" aria-selected={filter === f.id} className={filter === f.id ? "on" : ""} onClick={() => setFilter(f.id)}>
+              <span>{f.label}</span><span className="c">{loading ? "" : f.count}</span>
             </button>
           ))}
         </div>
-      </h2>
-      <div className="list">
-        {shown.length === 0 && <p className="empty">Sem alertas.</p>}
-        {shown.map((a) => (
-          <div className={`card alert ${a.rule} ${newIds.has(a.id) ? "is-new" : ""}`} key={a.id}>
-            <div className="row">
-              <span className={`tag ${a.rule}`}>{RULE_LABEL[a.rule] ?? a.rule}</span>
-              <span className="when">{time(a.createdAt)}</span>
+      </div>
+      <div className="scroll">
+        {loading ? (
+          [0, 1, 2, 3, 4].map((i) => (
+            <div className="sk-row" key={i}>
+              <div className="sk-ic" />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+                <div className="sk-line" style={{ width: "55%" }} /><div className="sk-line sm" style={{ width: "32%" }} />
+              </div>
             </div>
-            <div className="reason">{a.reason}</div>
-            <div className="meta">conta {a.accountId} · {money(a.amount)}</div>
+          ))
+        ) : shown.length === 0 ? (
+          <div className="empty">
+            <span className="t">{snap.alerts.length === 0 ? "Nenhum alerta" : `Nenhum alerta de ${RULES[filter as RuleKey]?.label ?? ""}`}</span>
+            <span className="d">{snap.alerts.length === 0 ? "Simule uma transação de risco para testar as regras." : "Altere o filtro para ver outras regras."}</span>
           </div>
-        ))}
+        ) : (
+          shown.map((a) => {
+            const r = RULES[a.rule as RuleKey] ?? RULES.high_amount;
+            return (
+              <div className={`a-row ${newIds.has(a.id) ? "is-new" : ""}`} key={a.id}>
+                <div className="a-ic" style={{ background: r.tint }}>{a.rule === "velocity" ? <IconBolt size={14} /> : <IconTriangle size={14} />}</div>
+                <div className="a-body">
+                  <span className="a-msg">{a.reason}</span>
+                  <span className="a-meta">
+                    <span className="rule" style={{ color: r.color }}>{r.label}</span>
+                    <span className="sep">·</span><span>{r.severity}</span>
+                    <span className="sep">·</span><span className="mono">{a.accountId}</span>
+                    <span className="sep">·</span><span className="tnum">{brl(a.amount)}</span>
+                  </span>
+                </div>
+                <span className="a-time">{hhmmss(a.createdAt)}</span>
+              </div>
+            );
+          })
+        )}
       </div>
     </section>
   );
 }
 
-function TxPanel({ transactions, newIds }: { transactions: Transaction[]; newIds: Set<string> }) {
+/* ---------------- transactions ---------------- */
+function TxPanel({ snap, loading, newIds }: { snap: Snap; loading: boolean; newIds: Set<string> }) {
+  const tagsByTx = new Map<string, RuleKey[]>();
+  for (const a of snap.alerts) {
+    const arr = tagsByTx.get(a.transactionId) ?? [];
+    if (!arr.includes(a.rule as RuleKey)) arr.push(a.rule as RuleKey);
+    tagsByTx.set(a.transactionId, arr);
+  }
   return (
-    <section className="panel">
-      <h2>Transações <span className="count">{transactions.length}</span></h2>
-      <div className="list">
-        {transactions.length === 0 && <p className="empty">Sem transações.</p>}
-        {transactions.map((t) => (
-          <div className={`card ${t.amount >= HIGH_AMOUNT ? "big" : ""} ${newIds.has(t.id) ? "is-new" : ""}`} key={t.id}>
-            <div className="row">
-              <span className="amount">{money(t.amount)}</span>
-              <span className="when">{time(t.createdAt)}</span>
+    <section className="panel lp txns" aria-label="Transações">
+      <div className="lp-h">
+        <div className="title"><h2>Transações</h2><span className="badge">{loading ? "—" : snap.txns.length}</span></div>
+        <span className="aside">mais recentes primeiro</span>
+      </div>
+      <div className="scroll">
+        {loading ? (
+          [0, 1, 2, 3, 4].map((i) => (
+            <div className="sk-row" key={i} style={{ justifyContent: "space-between" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, width: "50%" }}>
+                <div className="sk-line" style={{ width: "60%" }} /><div className="sk-line sm" style={{ width: "40%" }} />
+              </div>
+              <div className="sk-line sm" style={{ width: 52 }} />
             </div>
-            <div className="meta">conta {t.accountId} · {t.currency}</div>
-          </div>
-        ))}
+          ))
+        ) : snap.txns.length === 0 ? (
+          <div className="empty"><span className="t">Sem transações</span><span className="d">Use o simulador para enviar a primeira.</span></div>
+        ) : (
+          snap.txns.map((t) => {
+            const tags = tagsByTx.get(t.id) ?? [];
+            return (
+              <div className={`t-row ${newIds.has(t.id) ? "is-new" : ""}`} key={t.id}>
+                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span className="t-amt">{brl(t.amount)}</span>
+                  <span className="t-sub"><span className="mono">{t.accountId}</span> · {t.currency}</span>
+                </div>
+                <div className="t-right">
+                  {tags.map((g) => (
+                    <span className="tag" key={g} style={{ background: RULES[g].tint, color: RULES[g].color }}>{RULES[g].label}</span>
+                  ))}
+                  <span className="t-time">{hhmmss(t.createdAt)}</span>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </section>
   );
 }
 
+/* ---------------- app ---------------- */
 export function App() {
   const [paused, setPaused] = useState(false);
-  const { transactions, alerts, online, updatedAt, newIds, refresh } = useLivePoll(paused);
-  const [, forceTick] = useState(0);
+  const { snap, loading, refreshing, online, now, pending, newIds, refresh, reload } = useLive(paused);
 
-  // keep the "atualizado há Xs" label ticking
-  useEffect(() => {
-    const id = setInterval(() => forceTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const secs = snap.at ? Math.max(0, Math.floor((now - snap.at) / 1000)) : null;
+  const updatedText = !online ? "sem conexão"
+    : secs == null ? "conectando…"
+    : secs < 1 ? "atualizado agora"
+    : secs < 60 ? `atualizado há ${secs}s`
+    : `atualizado há ${Math.floor(secs / 60)}min`;
 
   return (
-    <div className="app">
-      <div className="topbar">
-        <div className="brand">
-          <span className="logo">🛡️</span>
-          <h1>Argus</h1>
-          <span className="tag-name">fraud monitor</span>
+    <>
+      <Header
+        live={online && !paused}
+        paused={paused}
+        refreshing={refreshing}
+        updatedText={updatedText}
+        updatedTitle={snap.at ? "Última atualização: " + hhmmss(new Date(snap.at).toISOString()) : ""}
+        pending={pending}
+        onToggle={() => setPaused((p) => !p)}
+        onRefresh={() => void refresh()}
+      />
+      <main className="main">
+        <Tiles snap={snap} loading={loading} />
+        <div className="cols">
+          <RulesPanel snap={snap} loading={loading} />
+          <SimulatePanel reload={reload} snapAlerts={snap.alerts.length} />
         </div>
-        <div className="spacer" />
-        <span className="status-dot">
-          <span className={`dot ${online ? "ok" : "off"}`} />
-          {online ? `atualizado há ${secondsAgo(updatedAt)}s` : "API offline"}
-        </span>
-        <button className="icon-btn" onClick={() => setPaused((p) => !p)}>
-          {paused ? "▶ Retomar" : "⏸ Pausar"}
-        </button>
-        <button className="icon-btn" onClick={() => void refresh()}>↻ Atualizar</button>
-      </div>
-
-      <StatTiles transactions={transactions} alerts={alerts} />
-      <RuleChart alerts={alerts} />
-      <Controls onFire={refresh} />
-
-      <div className="grid">
-        <AlertsPanel alerts={alerts} newIds={newIds} />
-        <TxPanel transactions={transactions} newIds={newIds} />
-      </div>
-    </div>
+        <div className="cols">
+          <AlertsPanel snap={snap} loading={loading} newIds={newIds} />
+          <TxPanel snap={snap} loading={loading} newIds={newIds} />
+        </div>
+      </main>
+    </>
   );
 }
